@@ -1,13 +1,34 @@
 from enum import Enum
-from typing import Union
-from PIL import Image
+from io import BytesIO
+
 import numpy as np
+from PIL import Image
 
 
 class ImageComponent(Enum):
     RED = 0
     GREEN = 1
     BLUE = 2
+
+
+class ImagePSNR:
+    def calculate_psnr(img1: Image, img2: Image, max_value: int = 255) -> float:
+        """Calculating peak signal-to-noise ratio (PSNR) between two images.
+
+        Args:
+            img1: The first Image
+            img2: The second Image
+            max_value (optional): Maximum possible value in the image. Defaults to 255.
+
+        Returns:
+            float: Calculated PSNR
+        """
+        img1_arr = np.asarray(img1, dtype=np.float32).copy()
+        img2_arr = np.asarray(img2, dtype=np.float32).copy()
+        mse = np.mean((img1_arr - img2_arr) ** 2)
+        if mse == 0:
+            return 100
+        return float(20 * np.log10(max_value / (np.sqrt(mse))))
 
 
 class ImageData:
@@ -48,24 +69,25 @@ class ImageData:
         """
         return Image.fromarray(self.ycbcr_array, mode="YCbCr")
 
-    def rgb2ycbcr(self):
+    def rgb2ycbcr(self) -> np.ndarray:
         """Takes the RGB components and computes the components in YCbCr
 
         Returns:
-            np.NDArray: Numpy 3D array containing the image YCbCr components
+            np.ndarray: Numpy 3D array containing the image YCbCr components
         """
         xform = np.array(
             [[0.299, 0.587, 0.114], [-0.1687, -0.3313, 0.5], [0.5, -0.4187, -0.0813]]
         )
         ycbcr = self.rgb_array.dot(xform.T)
         ycbcr[:, :, [1, 2]] += 128
+        print(type(np.uint8(ycbcr)))
         return np.uint8(ycbcr)
 
-    def ycbcr2rgb(self):
+    def ycbcr2rgb(self) -> np.ndarray:
         """Takes the YCbCr components and computes the components in RGB
 
         Returns:
-            np.NDArray: Numpy 3D array containing the image RGB components
+            np.ndarray: Numpy 3D array containing the image RGB components
         """
         xform = np.array([[1, 0, 1.402], [1, -0.34414, -0.71414], [1, 1.772, 0]])
         rgb = self.ycbcr_array.astype(np.float)
@@ -73,6 +95,7 @@ class ImageData:
         rgb = rgb.dot(xform.T)
         np.putmask(rgb, rgb > 255, 255)
         np.putmask(rgb, rgb < 0, 0)
+        print(type(np.uint8(rgb)))
         return np.uint8(rgb)
 
     def lsb_encode(
@@ -107,51 +130,6 @@ class ImageData:
                 )
             case _:
                 raise ValueError("Invalid ImageComponent input")
-
-    def encode_lsb_text(
-        self, component: np.ndarray, watermark_str: str, depth: int
-    ) -> np.ndarray:
-        """Single component LSB string encoding
-
-        Args:
-            component (np.ndarray): The selected component array
-            watermark_str (str): Watermark string
-            depth (int): The bit depth
-
-        Raises:
-            ValueError: In case the picture is too small to encode the message
-
-        Returns:
-            np.ndarray: New image component with encoded data.
-        """
-        watermark = watermark_str + self.end_string
-        binary_watermark = "".join([f"{i:08b}" for i in watermark.encode()])
-        data_length = len(binary_watermark)
-        if data_length > component.size:
-            raise ValueError("Picture is too small to encode the message.")
-
-        # převod pole intů na pole bitů
-        binary_component = np.unpackbits(component, axis=1)
-
-        # vytvoří 1D array o stejné velikosti jako složka doplněný nulami na konci
-        binary_watermark_array = np.array(list(binary_watermark), dtype=np.uint8)
-        data_bits = np.pad(
-            binary_watermark_array,
-            (0, component.size - len(binary_watermark_array)),
-            "constant",
-            constant_values=(0),
-        )
-
-        # přemění 1D array na 2D array o stejných rozměrech jako má složka
-        data_array = data_bits.reshape(component.shape)
-
-        # nahradí bitovou hladinu složku prvky z `data_array`
-        binary_component[:, depth::8] = data_array
-
-        # převod pole bitů zpět na pole intů
-        new_component = np.packbits(binary_component, axis=1)
-
-        return new_component
 
     def encode_lsb_image(
         self, component: np.ndarray, watermark: Image, depth: int
@@ -210,32 +188,6 @@ class ImageData:
 
         return data
 
-    def decode_lsb_text(self, component: np.ndarray, depth: int) -> str:
-        """Single component LSB decoding
-
-        Args:
-            component (np.ndarray): The selected component array
-            depth (int): The bit depth
-
-        Returns:
-            str: The decoded string
-        """
-        binary_end = "".join([f"{i:08b}" for i in self.end_string.encode()])
-        binary_component = np.unpackbits(component, axis=1)
-        # extrakce bitové hladiny
-        data_array = binary_component[:, depth::8]
-
-        # převod bitové hladiny do listu byte stringů
-        bit_list = data_array.flatten().tolist()
-        full_bit_str = "".join(str(int) for int in bit_list)
-        bit_data = full_bit_str.split(binary_end, 1)[0]
-        byte_data = [bit_data[i * 8 : i * 8 + 8] for i in range(len(bit_data) // 8)]
-
-        # převod zpět do UTF-8
-        data_str = bytes([int(x, 2) for x in byte_data]).decode("utf-8")
-
-        return data_str
-
     def decode_lsb_image(self, component: np.ndarray, depth: int) -> Image:
         """Single component LSB decoding
 
@@ -256,3 +208,79 @@ class ImageData:
         )
 
         return image
+
+    def jpeg_compress(self, quality: int):
+        """Compress the image by the JPEG compression algorithm
+
+        Args:
+            quality: Compression quality
+        """
+        buffer = BytesIO()
+        jpg_buffer = BytesIO()
+        self.rgb2image().save(jpg_buffer, "JPEG", subsampling=0, quality=100)
+        jpg_image = Image.open(jpg_buffer, formats=["JPEG"])
+        jpg_image.save(buffer, "JPEG", subsampling=0, quality=quality)
+
+        new_image = Image.open(buffer, formats=["JPEG"])
+        self.rgb_array = np.asarray(new_image).copy()
+        self.ycbcr_array = self.rgb2ycbcr()
+
+    def image_rotate(self, angle: int):
+        """Rotates the image by a given angle and back. When rotating back,
+        the image is cropped to the original size
+
+        Args:
+            angle: Angle of rotation
+        """
+        temp_image: Image = self.original_image
+        temp_image = temp_image.rotate(angle, expand=True)
+        temp_image.show()
+        original_size = self.original_image.size
+        original_center = (int(original_size[0] / 2), int(original_size[1] / 2))
+        temp_size = temp_image.size
+        center_point = (int(temp_size[0] / 2), int(temp_size[1] / 2))
+        new_image: Image = temp_image.rotate(-angle)
+        new_image = new_image.crop(
+            (
+                center_point[0] - original_center[0],
+                center_point[1] - original_center[1],
+                center_point[0] + original_center[0],
+                center_point[1] + original_center[1],
+            )
+        )
+
+        self.rgb_array = np.asarray(new_image).copy()
+        self.ycbcr_array = self.rgb2ycbcr()
+
+    def image_resize(self, percentage: int):
+        """Resizes the image to the given percentage.
+
+        Args:
+            angle: Angle of rotation
+        """
+        temp_image: Image = self.original_image
+        original_size = self.original_image.size
+        new_size = (
+            int(original_size[0] * (percentage / 100)),
+            int(original_size[1] * (percentage / 100)),
+        )
+        new_image: Image = temp_image.resize(new_size)
+
+        self.rgb_array = np.asarray(new_image).copy()
+        self.ycbcr_array = self.rgb2ycbcr()
+
+    def image_flip(self, method: str):
+        """Flips the image
+
+        Args:
+            method: horizontal or vertical
+        """
+        if method == "horizontal":
+            transpose_method = Image.Transpose.FLIP_LEFT_RIGHT
+        elif method == "vertical":
+            transpose_method = Image.Transpose.FLIP_TOP_BOTTOM
+        temp_image: Image = self.original_image
+        new_image: Image = temp_image.transpose(transpose_method)
+
+        self.rgb_array = np.asarray(new_image).copy()
+        self.ycbcr_array = self.rgb2ycbcr()
