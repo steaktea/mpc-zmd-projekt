@@ -1,0 +1,33 @@
+% Povinný argument: Kód předmětu
+\newcommand{\subject}{MPC-ZMD}
+% Povinný argument: Název předmětu
+\newcommand{\subjectname}{Zpracování multimediálních dat}
+% Povinný argument: Autor
+\newcommand{\authorName}{<blank>}
+% Povinný argument:VUT ID
+\newcommand{\vutID}{<blank>}
+% Nepovinný argument: Popis dokumentu
+\newcommand{\docdesc}{Příloha k projektu}
+% Nepovinný argument: Cílová skupina dokumentu
+\newcommand{\docgroup}{}
+% Nepovinný argument: URL repozitáře nebo jiný odkaz na dokument
+\newcommand{\docurl}{}
+
+% Přepsáním argumentu na 'false' vypnete balíček 'minted' pro sázení kódu.
+% Pro jeho použití lokálně musíte mít v systému dostupný Python 3, python
+% knihovnu 'minted' a PDFLaTeX musíte spouštět s argumentem '-shell-escape'.
+% Místo něj můžete použít prostředí 'lstlisting'.
+\newcommand{\docminted}{false}
+
+\input{shared}
+\usepackage{mdframed}
+
+\begin{document}
+
+\titulka{}
+
+\setcounter{page}{1}
+
+\include{text/01}
+
+\end{document}
