@@ -1,0 +1,15 @@
+# static analysis
+black==22.3.0
+flake8
+flake8-black
+flake8-print
+flake8-todo
+
+# safety checking
+bandit
+
+# type checking
+mypy
+
+# tests
+pytest
